@@ -1,0 +1,46 @@
+name: Build Boba (macOS)
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (universal arm64 + x86_64)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: DSP tests
+        run: |
+          cmake --build build --config Release --target boba_core_tests -j 4
+          ctest --test-dir build -C Release -R core --output-on-failure
+
+      - name: Build VST3 + AU
+        run: cmake --build build --config Release --target Boba_VST3 Boba_AU -j 4
+
+      - name: Make DMG
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then VERSION="${GITHUB_REF_NAME#v}"; else VERSION="dev-${GITHUB_SHA::7}"; fi
+          chmod +x make_dmg.sh
+          ./make_dmg.sh "$VERSION"
+
+      - name: Upload DMG (Actions artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Boba-dmg
+          path: Boba-*.dmg
+
+      - name: Attach DMG to the GitHub Release (only for tags vX.Y.Z)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Boba-*.dmg
